@@ -19,6 +19,9 @@ app.use(cors());
 app.use(express.json());
 
 // API Routes
+app.get("/", (req, res) => {
+  res.send("ChatPro backend is running successfully 🚀");
+});
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/messages', messageRoutes);
