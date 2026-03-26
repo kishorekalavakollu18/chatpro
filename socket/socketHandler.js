@@ -24,13 +24,12 @@ const socketHandler = (io) => {
             }
         });
 
-        socket.on('join chat', (room) => {
-            socket.join(room);
-            console.log('User Joined Room: ' + room);
+        socket.on('typing', (receiverId) => {
+            if (receiverId) io.to(receiverId).emit('typing', { room: socket.userId, senderId: socket.userId });
         });
-
-        socket.on('typing', (room) => socket.in(room).emit('typing', { room, senderId: socket.userId }));
-        socket.on('stop typing', (room) => socket.in(room).emit('stop typing', { room, senderId: socket.userId }));
+        socket.on('stop typing', (receiverId) => {
+            if (receiverId) io.to(receiverId).emit('stop typing', { room: socket.userId, senderId: socket.userId });
+        });
 
         socket.on('new message', async (newMessageReceived) => {
             const { sender, content, mediaFile, receiver } = newMessageReceived;
@@ -57,8 +56,9 @@ const socketHandler = (io) => {
                     .populate('sender', 'name profilePicture')
                     .populate('receiver', 'name profilePicture');
 
-                // Emit to the appropriate room (receiver's ID)
-                socket.in(receiver).emit('message received', fullMessage);
+                // Emit to the specific receiver and also back to the sender (for multi-tab sync)
+                io.to(receiver).emit('message received', fullMessage);
+                io.to(sender).emit('message received', fullMessage);
             } catch (error) {
                 console.error('Error saving message:', error);
             }
@@ -66,17 +66,19 @@ const socketHandler = (io) => {
 
         // Real-time friend request notification
         socket.on('friend request sent', ({ toUserId, fromUser }) => {
-            socket.in(toUserId).emit('new friend request', { from: fromUser });
+            io.to(toUserId).emit('new friend request', { from: fromUser });
         });
 
         socket.on('message edited', (updatedMessage) => {
-            const { receiver } = updatedMessage;
-            socket.in(receiver).emit('message edited', updatedMessage);
+            const { receiver, sender } = updatedMessage;
+            io.to(receiver).emit('message edited', updatedMessage);
+            io.to(sender?._id || sender).emit('message edited', updatedMessage); // Try both patterns
         });
 
         socket.on('message deleted', (data) => {
-            const { messageId, chatId } = data;
-            socket.in(chatId).emit('message deleted', { messageId, chatId });
+            const { messageId, receiverId, senderId } = data;
+            if (receiverId) io.to(receiverId).emit('message deleted', { messageId, chatId: senderId });
+            if (senderId) io.to(senderId).emit('message deleted', { messageId, chatId: receiverId });
         });
 
         socket.on('disconnect', async () => {

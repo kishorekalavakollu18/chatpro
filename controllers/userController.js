@@ -3,20 +3,47 @@ const User = require('../models/User');
 // @desc    Get all users (for search)
 // @route   GET /api/users?search=
 const allUsers = async (req, res) => {
-    const keyword = req.query.search
-        ? {
-              $or: [
-                  { name: { $regex: req.query.search, $options: 'i' } },
-                  { email: { $regex: req.query.search, $options: 'i' } },
-                  { uniqueChatID: req.query.search },
-              ],
-          }
-        : {};
+    let searchQuery = (req.query.search || "").trim();
+    
+    // Strip '#' prefix if present for ID search
+    if (searchQuery.startsWith('#')) {
+        searchQuery = searchQuery.substring(1);
+    }
 
-    const users = await User.find(keyword)
-        .find({ _id: { $ne: req.user._id } })
-        .select('-password');
-    res.send(users);
+    try {
+        // Data Repair: Assign IDs to users created before the system added them
+        const usersWithoutId = await User.find({ uniqueChatID: { $exists: false } });
+        if (usersWithoutId.length > 0) {
+            for (const u of usersWithoutId) {
+                let newId;
+                let exists = true;
+                while (exists) {
+                    newId = Math.floor(1000 + Math.random() * 9000).toString();
+                    exists = await User.findOne({ uniqueChatID: newId });
+                }
+                u.uniqueChatID = newId;
+                await u.save();
+            }
+        }
+
+        const keyword = searchQuery
+            ? {
+                  $or: [
+                      { name: { $regex: searchQuery, $options: 'i' } },
+                      { email: { $regex: searchQuery, $options: 'i' } },
+                      { uniqueChatID: { $regex: searchQuery, $options: 'i' } },
+                  ],
+              }
+            : {};
+
+        const users = await User.find(keyword)
+            .find({ _id: { $ne: req.user._id } })
+            .select('-password');
+        
+        res.send(users);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 };
 
 // @desc    Update user profile
